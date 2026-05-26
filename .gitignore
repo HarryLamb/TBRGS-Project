@@ -1,0 +1,10 @@
+.venv/
+models/
+Assignment-2B-1-CLEAN/
+__pycache__/
+*.pyc
+*.joblib
+*.keras
+*.xls
+*.xlsx
+*.csv

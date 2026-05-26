@@ -9,7 +9,6 @@ title.pack(pady=10)
 credit = tk.Label(root, text="GUI Created by Harry Lamb", font=("Times", 8, "bold"))
 credit.pack(pady=10)
 
-
 origin_label = tk.Label(root, text="Origin:")
 origin_label.pack()
 origin_entry = tk.Entry(root, width=20)
