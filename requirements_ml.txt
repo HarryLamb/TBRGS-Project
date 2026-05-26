@@ -1,1 +1,6 @@
-requirements_ml.txt
+pandas
+numpy
+scikit-learn
+tensorflow
+joblib
+xlrd
