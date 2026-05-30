@@ -161,7 +161,9 @@ def train_all_models(scats_file, output_dir="models", sequence_length=8, epochs=
 
     print("\nTraining Random Forest model...")
     rf_model = RandomForestRegressor(
-        n_estimators=150,
+        n_estimators=50,
+        max_depth=15,
+        min_samples_leaf=5,
         random_state=42,
         n_jobs=-1
     )
