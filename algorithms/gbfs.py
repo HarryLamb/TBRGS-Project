@@ -1,32 +1,33 @@
 # Created by Ashton Foo
 
-from math import sqrt
+
+from math import sqrt, radians, sin, cos, atan2
 from node import Node, get_path
 
-def heuristic(state, destinations, nodes):
-    x1, y1 = nodes[state]
-    best_distance = float("inf")
 
+def heuristic(state, destinations, nodes): # Haversine adapted from W3Tutorials.net
+    x1, y1 = nodes[state]
+    best = float("inf")
     for goal in destinations:
         x2, y2 = nodes[goal]
-        distance = sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
-        if distance < best_distance:
-            best_distance = distance
+        R = 6371.0
+        dlat = radians(x2 - x1)
+        dlon = radians(y2 - y1)
+        a = sin(dlat/2)**2 + cos(radians(x1)) * cos(radians(x2)) * sin(dlon/2)**2
+        km = R * 2 * atan2(sqrt(a), sqrt(1 - a))
+        seconds = (km / 60.0) * 3600.0
+        if seconds < best:
+            best = seconds
+    return best
 
-    return best_distance
 
 def GBFS(nodes, edges, origin, destinations):
     created_counter = 0
     frontier = [
-        Node(
-            origin,
-            parent=None,
-            path_cost=0,
-            heuristic=heuristic(origin, destinations, nodes),
-            created_order=created_counter
-        )
+        Node(origin, parent=None, path_cost=0,
+             heuristic=heuristic(origin, destinations, nodes),
+             created_order=created_counter)
     ]
-
     explored = set()
     number_of_nodes = 1
 
@@ -37,24 +38,17 @@ def GBFS(nodes, edges, origin, destinations):
 
         if state in explored:
             continue
-
         if state in destinations:
             return state, get_path(node), number_of_nodes
 
         explored.add(state)
 
-        neighbours = sorted(edges[state], key=lambda item: item[0])
-
-        for neighbour, cost in neighbours:
+        for neighbour, cost in sorted(edges[state], key=lambda x: x[0]):
             if neighbour not in explored:
                 created_counter += 1
-                child = Node(
-                    neighbour,
-                    parent=node,
-                    path_cost=node.path_cost + cost,
-                    heuristic=heuristic(neighbour, destinations, nodes),
-                    created_order=created_counter
-                )
+                child = Node(neighbour, parent=node, path_cost=node.path_cost + cost,
+                             heuristic=heuristic(neighbour, destinations, nodes),
+                             created_order=created_counter)
                 frontier.append(child)
                 number_of_nodes += 1
 

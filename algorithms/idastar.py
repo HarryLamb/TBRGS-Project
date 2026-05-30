@@ -1,85 +1,87 @@
-from math import sqrt
+# Created by Ashton Foo
+
+from math import sqrt, radians, sin, cos, atan2
 
 
-def heuristic(node, nodes, destinations):
-    x1, y1 = nodes[node]
-    best_distance = float("inf")
+def heuristic(state, destinations, nodes): # Haversine adapted from W3Tutorials.net
+    x1, y1 = nodes[state]
+    best = float("inf")
+    for goal in destinations:
+        x2, y2 = nodes[goal]
+        R = 6371.0
+        dlat = radians(x2 - x1)
+        dlon = radians(y2 - y1)
+        a = sin(dlat/2)**2 + cos(radians(x1)) * cos(radians(x2)) * sin(dlon/2)**2
+        km = R * 2 * atan2(sqrt(a), sqrt(1 - a))
+        seconds = (km / 60.0) * 3600.0
+        if seconds < best:
+            best = seconds
+    return best
 
-    for dest in destinations:
-        x2, y2 = nodes[dest]
-        distance = sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
-        if distance < best_distance:
-            best_distance = distance
 
-    return best_distance
-
-
-def IDA(nodes, edges, origin, destinations):
-    threshold = heuristic(origin, nodes, destinations)
-    number_of_nodes = 1
+def IDA(site_nodes, edges, origin, destinations):
+    threshold = heuristic(origin, destinations, site_nodes)
+    all_created = {origin}
 
     while True:
         path = [origin]
         visited = {origin}
 
-        found_path, next_threshold, created_nodes = depth_limited_search(
+        found_path, next_threshold = depth_limited_search(
             current_node=origin,
             g_cost=0,
             threshold=threshold,
             path=path,
             visited=visited,
-            nodes=nodes,
+            site_nodes=site_nodes,
             edges=edges,
-            destinations=destinations
+            destinations=destinations,
+            all_created=all_created
         )
 
-        number_of_nodes += created_nodes
-
         if found_path is not None:
-            return found_path[-1], found_path, number_of_nodes
+            return found_path[-1], found_path, len(all_created)
 
         if next_threshold == float("inf"):
-            return None, [], number_of_nodes
+            return None, [], len(all_created)
 
         threshold = next_threshold
 
 
-def depth_limited_search(current_node, g_cost, threshold, path, visited, nodes, edges, destinations):
-    h_cost = heuristic(current_node, nodes, destinations)
+def depth_limited_search(current_node, g_cost, threshold, path, visited, site_nodes, edges, destinations, all_created):
+    h_cost = heuristic(current_node, destinations, site_nodes)
     f_cost = g_cost + h_cost
 
     if f_cost > threshold:
-        return None, f_cost, 0
+        return None, f_cost
 
     if current_node in destinations:
-        return path[:], f_cost, 0
+        return path[:], f_cost
 
     minimum_exceeded = float("inf")
-    created_nodes = 0
 
     for neighbour, edge_cost in sorted(edges.get(current_node, [])):
         if neighbour in visited:
             continue
 
+        all_created.add(neighbour)
         path.append(neighbour)
         visited.add(neighbour)
-        created_nodes += 1
 
-        found_path, temp_threshold, child_created = depth_limited_search(
+        found_path, temp_threshold = depth_limited_search(
             current_node=neighbour,
             g_cost=g_cost + edge_cost,
             threshold=threshold,
             path=path,
             visited=visited,
-            nodes=nodes,
+            site_nodes=site_nodes,
             edges=edges,
-            destinations=destinations
+            destinations=destinations,
+            all_created=all_created
         )
 
-        created_nodes += child_created
-
         if found_path is not None:
-            return found_path, temp_threshold, created_nodes
+            return found_path, temp_threshold
 
         if temp_threshold < minimum_exceeded:
             minimum_exceeded = temp_threshold
@@ -87,4 +89,4 @@ def depth_limited_search(current_node, g_cost, threshold, path, visited, nodes, 
         path.pop()
         visited.remove(neighbour)
 
-    return None, minimum_exceeded, created_nodes
+    return None, minimum_exceeded
