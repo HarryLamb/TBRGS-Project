@@ -17,9 +17,7 @@ def flow_to_speed(flow_vehicles_per_hour):
         return 32.0
 
     sqrt_d = math.sqrt(discriminant)
-
     speed_high = (-B - sqrt_d) / (2 * A)
-
     speed = min(SPEED_LIMIT_KMH, max(1.0, speed_high))
 
     return speed

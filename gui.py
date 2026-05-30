@@ -1,5 +1,4 @@
-# Created by Harry Lamb
-
+import json
 import tkinter as tk
 from tkinter import messagebox
 import webbrowser
@@ -13,21 +12,41 @@ from algorithms.gbfs import GBFS
 from algorithms.idastar import IDA
 from visualisation import visualise_route
 
-SCATS_FILE = "Scats Data October 2006.xls"
+with open("config.json") as f:
+    config = json.load(f)
 
-nodes, edges = build_graph(SCATS_FILE)
-simple_nodes = {site: (info["lat"], info["lon"]) for site, info in nodes.items()}
+SCATS_FILE = config["scats_file"]
+MODELS_DIR = config["models_dir"]
+
+nodes = None
+edges = None
+simple_nodes = None
 last_paths = {}
+current_model = None
+current_slot = None
 
 
 def run_search():
-    global nodes, edges, simple_nodes
+    global nodes, edges, simple_nodes, current_model, current_slot
+
     try:
         origin = int(origin_entry.get())
         destination = int(destination_entry.get())
+        time_slot = int(slot_entry.get())
+        if not 0 <= time_slot <= 95:
+            messagebox.showerror("Error", "Time slot must be between 0 and 95.")
+            return
     except ValueError:
-        messagebox.showerror("Error", "Origin and destination must be SCATS site numbers (integers).")
+        messagebox.showerror("Error", "All inputs must be integers.")
         return
+
+    selected_model = model_var.get()
+    if nodes is None or selected_model != current_model or time_slot != current_slot:
+        nodes, edges = build_graph(SCATS_FILE, models_dir=MODELS_DIR,
+                                   model_type=selected_model, time_slot=time_slot)
+        simple_nodes = {site: (info["lat"], info["lon"]) for site, info in nodes.items()}
+        current_model = selected_model
+        current_slot = time_slot
 
     if origin not in edges:
         messagebox.showerror("Error", f"Origin {origin} not found in graph.")
@@ -61,7 +80,9 @@ def run_search():
 
     results.sort(key=lambda x: x[3])
 
-    lines = ["Results by Algorithm (Top-K Routes):\n"]
+    hour = (time_slot * 15) // 60
+    minute = (time_slot * 15) % 60
+    lines = [f"Results — {hour:02d}:{minute:02d}, Model: {selected_model}\n"]
     for i, (name, path, num_nodes, total_cost) in enumerate(results, 1):
         path_str = ", ".join(str(s) for s in path)
         lines.append(f"{i}. {name} ({num_nodes} nodes explored)\n   Travel Time: {total_cost:.0f}s\n   Path: {path_str}")
@@ -78,7 +99,7 @@ def show_map():
         messagebox.showerror("Error", "Run a search first.")
         return
     path = last_paths.get("UCS") or next(iter(last_paths.values()))
-    visualise_route(nodes, path)
+    visualise_route(nodes, path, all_paths=last_paths)
     webbrowser.open("route.html")
 
 
@@ -94,20 +115,30 @@ credit.pack(pady=10)
 
 origin_label = tk.Label(root, text="Origin:")
 origin_label.pack()
-
 origin_entry = tk.Entry(root, width=20)
 origin_entry.pack(pady=5)
 
 destination_label = tk.Label(root, text="Destination:")
 destination_label.pack()
-
 destination_entry = tk.Entry(root, width=20)
 destination_entry.pack(pady=5)
+
+slot_label = tk.Label(root, text="Time Slot (0-95, e.g. 32=8am, 60=3pm, 68=5pm):")
+slot_label.pack()
+slot_entry = tk.Entry(root, width=20)
+slot_entry.insert(0, str(config["default_time_slot"]))
+slot_entry.pack(pady=5)
+
+model_label = tk.Label(root, text="Prediction Model:")
+model_label.pack()
+model_var = tk.StringVar(value=config["prediction_model"])
+model_menu = tk.OptionMenu(root, model_var, "random_forest", "lstm", "gru")
+model_menu.pack(pady=5)
 
 search_button = tk.Button(root, text="Find Route", command=run_search)
 search_button.pack(pady=10)
 
-map_button = tk.Button(root, text="Show Visualisation on the OpenStreetMap", command=show_map)
+map_button = tk.Button(root, text="Show Route on OpenStreetMap", command=show_map)
 map_button.pack(pady=5)
 
 result_label = tk.Label(root, text="", font=("Times", 10), wraplength=700, justify="left")

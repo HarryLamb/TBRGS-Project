@@ -1,0 +1,8 @@
+{
+    "scats_file": "Scats Data October 2006.xls",
+    "models_dir": "models",
+    "prediction_model": "random_forest",
+    "k_nearest": 5,
+    "sequence_length": 8,
+    "default_time_slot": 60
+}

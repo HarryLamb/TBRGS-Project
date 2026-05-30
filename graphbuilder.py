@@ -12,10 +12,7 @@ from data_processing import load_scats_excel, wide_to_long
 from algorithms.travel_time import estimate_travel_time_seconds
 
 K_NEAREST = 5
-FIXED_HOUR = 15
-FIXED_SLOT = 60
 FIXED_DAY = 4
-FIXED_IS_WEEKEND = 0
 
 
 def haversine(lat1, lon1, lat2, lon2):
@@ -56,48 +53,106 @@ def build_flow_lookup(scats_file):
     return lookup
 
 
-def load_prediction_assets(models_dir="models"):
+def load_prediction_assets(models_dir="models", model_type="random_forest"):
     models_dir = Path(models_dir)
-    rf_model       = joblib.load(models_dir / "random_forest_traffic_model.joblib")
     feature_scaler = joblib.load(models_dir / "feature_scaler.joblib")
     target_scaler  = joblib.load(models_dir / "target_scaler.joblib")
     with open(models_dir / "feature_columns.json") as f:
         feature_columns = json.load(f)
-    return rf_model, feature_scaler, target_scaler, feature_columns
+    if model_type == "lstm":
+        import tensorflow as tf
+        model = tf.keras.models.load_model(models_dir / "lstm_traffic_model.keras")
+        model_type_loaded = "deep"
+    elif model_type == "gru":
+        import tensorflow as tf
+        model = tf.keras.models.load_model(models_dir / "gru_traffic_model.keras")
+        model_type_loaded = "deep"
+    else:
+        model = joblib.load(models_dir / "random_forest_traffic_model.joblib")
+        model_type_loaded = "rf"
+    return model, model_type_loaded, feature_scaler, target_scaler, feature_columns
 
 
-def predict_flow(scats_number, flow_lookup, rf_model, feature_scaler, target_scaler, feature_columns):
+def build_sequence(scats_number, flow_lookup, feature_columns,
+                   feature_scaler, sequence_length=8, time_slot=60):
+    sequence = []
+    for step in range(sequence_length, 0, -1):
+        slot = (time_slot - step) % 96
+
+        def get_lag_for_slot(lag, s=slot):
+            return flow_lookup.get((scats_number, (s - lag) % 96), 50.0)
+
+        row = {
+            "SCATS Number":   0,
+            "hour":           (slot * 15) // 60,
+            "day_of_week":    FIXED_DAY,
+            "is_weekend":     0,
+            "time_slot":      slot,
+            "slot_sin":       np.sin(2 * np.pi * slot / 96),
+            "slot_cos":       np.cos(2 * np.pi * slot / 96),
+            "lag_1":          get_lag_for_slot(1),
+            "lag_2":          get_lag_for_slot(2),
+            "lag_3":          get_lag_for_slot(3),
+            "lag_4":          get_lag_for_slot(4),
+            "lag_8":          get_lag_for_slot(8),
+            "lag_12":         get_lag_for_slot(12),
+            "rolling_mean_4": sum(get_lag_for_slot(i) for i in range(1, 5)) / 4,
+            "rolling_mean_8": sum(get_lag_for_slot(i) for i in range(1, 9)) / 8,
+        }
+        sequence.append(pd.DataFrame([row])[feature_columns].values[0])
+
+    X_scaled = feature_scaler.transform(np.array(sequence))
+    return X_scaled[np.newaxis, :, :]
+
+
+def predict_flow(scats_number, flow_lookup, model, model_type_loaded,
+                 feature_scaler, target_scaler, feature_columns,
+                 sequence_length=8, time_slot=60):
+
+    hour = (time_slot * 15) // 60
+
     def get_lag(lag):
-        slot = (FIXED_SLOT - lag) % 96
+        slot = (time_slot - lag) % 96
         return flow_lookup.get((scats_number, slot), 50.0)
 
-    feature_row = {
-        "SCATS Number":   0,
-        "hour":           FIXED_HOUR,
-        "day_of_week":    FIXED_DAY,
-        "is_weekend":     FIXED_IS_WEEKEND,
-        "time_slot":      FIXED_SLOT,
-        "slot_sin":       np.sin(2 * np.pi * FIXED_SLOT / 96),
-        "slot_cos":       np.cos(2 * np.pi * FIXED_SLOT / 96),
-        "lag_1":          get_lag(1),
-        "lag_2":          get_lag(2),
-        "lag_3":          get_lag(3),
-        "lag_4":          get_lag(4),
-        "lag_8":          get_lag(8),
-        "lag_12":         get_lag(12),
-        "rolling_mean_4": sum(get_lag(i) for i in range(1, 5)) / 4,
-        "rolling_mean_8": sum(get_lag(i) for i in range(1, 9)) / 8,
-    }
+    if model_type_loaded == "deep":
+        X_seq = build_sequence(
+            scats_number, flow_lookup, feature_columns,
+            feature_scaler, sequence_length, time_slot=time_slot
+        )
+        pred_scaled = model.predict(X_seq, verbose=0).ravel()
+    else:
+        feature_row = {
+            "SCATS Number":   0,
+            "hour":           hour,
+            "day_of_week":    FIXED_DAY,
+            "is_weekend":     0,
+            "time_slot":      time_slot,
+            "slot_sin":       np.sin(2 * np.pi * time_slot / 96),
+            "slot_cos":       np.cos(2 * np.pi * time_slot / 96),
+            "lag_1":          get_lag(1),
+            "lag_2":          get_lag(2),
+            "lag_3":          get_lag(3),
+            "lag_4":          get_lag(4),
+            "lag_8":          get_lag(8),
+            "lag_12":         get_lag(12),
+            "rolling_mean_4": sum(get_lag(i) for i in range(1, 5)) / 4,
+            "rolling_mean_8": sum(get_lag(i) for i in range(1, 9)) / 8,
+        }
+        X_row = pd.DataFrame([feature_row])[feature_columns]
+        X_scaled = feature_scaler.transform(X_row)
+        pred_scaled = model.predict(X_scaled).reshape(-1, 1)
 
-    X = pd.DataFrame([feature_row])[feature_columns]
-    X_scaled = feature_scaler.transform(X)
-    pred_scaled = rf_model.predict(X_scaled).reshape(-1, 1)
-    pred = target_scaler.inverse_transform(pred_scaled).ravel()[0]
+    pred = target_scaler.inverse_transform(
+        np.array(pred_scaled).reshape(-1, 1)
+    ).ravel()[0]
     return max(0.0, float(pred))
 
 
-def build_graph(scats_file, models_dir="models"):
-    rf_model, feature_scaler, target_scaler, feature_columns = load_prediction_assets(models_dir)
+def build_graph(scats_file, models_dir="models", model_type="random_forest", time_slot=60):
+    model, model_type_loaded, feature_scaler, target_scaler, feature_columns = (
+        load_prediction_assets(models_dir, model_type)
+    )
     nodes = get_scats_sites(scats_file)
     flow_lookup = build_flow_lookup(scats_file)
     site_list = list(nodes.items())
@@ -113,8 +168,9 @@ def build_graph(scats_file, models_dir="models"):
         )
         for distance_km, site_b, _ in distances[:K_NEAREST]:
             predicted_flow = predict_flow(
-                site_a, flow_lookup,
-                rf_model, feature_scaler, target_scaler, feature_columns
+                site_a, flow_lookup, model, model_type_loaded,
+                feature_scaler, target_scaler, feature_columns,
+                time_slot=time_slot
             )
             travel_time = estimate_travel_time_seconds(distance_km, predicted_flow)
             if not any(n == site_b for n, _ in edges[site_a]):
