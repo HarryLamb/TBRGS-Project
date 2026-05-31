@@ -11,7 +11,9 @@ import pandas as pd
 from data_processing import load_scats_excel, wide_to_long
 from algorithms.travel_time import estimate_travel_time_seconds
 
+# Number of nearest neighbours to connect each SCATS site to
 K_NEAREST = 5
+# Fixed to Friday for all predictions
 FIXED_DAY = 4
 
 
@@ -26,6 +28,7 @@ def haversine(lat1, lon1, lat2, lon2):
 
 
 def get_scats_sites(scats_file):
+    # Extract unique SCATS site locations from the dataset
     df = load_scats_excel(scats_file)
     sites = (df[["SCATS Number", "Location", "NB_LATITUDE", "NB_LONGITUDE"]]
              .drop_duplicates(subset=["SCATS Number"]))
@@ -42,6 +45,7 @@ def get_scats_sites(scats_file):
 
 
 def build_flow_lookup(scats_file):
+    # Build a table of average traffic volume per site per 15 minutes for lag
     df = load_scats_excel(scats_file)
     long_df = wide_to_long(df)
     long_df["slot"] = long_df["datetime"].dt.hour * 4 + long_df["datetime"].dt.minute // 15
@@ -54,6 +58,7 @@ def build_flow_lookup(scats_file):
 
 
 def load_prediction_assets(models_dir="models", model_type="random_forest"):
+    # Load the trained ML model, scalers and feature column list
     models_dir = Path(models_dir)
     feature_scaler = joblib.load(models_dir / "feature_scaler.joblib")
     target_scaler  = joblib.load(models_dir / "target_scaler.joblib")
@@ -75,6 +80,7 @@ def load_prediction_assets(models_dir="models", model_type="random_forest"):
 
 def build_sequence(scats_number, flow_lookup, feature_columns,
                    feature_scaler, sequence_length=8, time_slot=60):
+    # Build a sequence of feature rows for LSTM/GRU input
     sequence = []
     for step in range(sequence_length, 0, -1):
         slot = (time_slot - step) % 96
@@ -108,7 +114,7 @@ def build_sequence(scats_number, flow_lookup, feature_columns,
 def predict_flow(scats_number, flow_lookup, model, model_type_loaded,
                  feature_scaler, target_scaler, feature_columns,
                  sequence_length=8, time_slot=60):
-
+    # Predict 15 minute traffic flow at a site for the certain time
     hour = (time_slot * 15) // 60
 
     def get_lag(lag):
@@ -150,6 +156,7 @@ def predict_flow(scats_number, flow_lookup, model, model_type_loaded,
 
 
 def build_graph(scats_file, models_dir="models", model_type="random_forest", time_slot=60):
+    # Build the road network graph for Boroondara, with edge costs being the ML prediction
     model, model_type_loaded, feature_scaler, target_scaler, feature_columns = (
         load_prediction_assets(models_dir, model_type)
     )
@@ -159,6 +166,7 @@ def build_graph(scats_file, models_dir="models", model_type="random_forest", tim
     edges = {site: [] for site in nodes}
 
     for site_a, info_a in site_list:
+        # Sort all other sites by distance from site_a
         distances = sorted(
             [
                 (haversine(info_a["lat"], info_a["lon"], info_b["lat"], info_b["lon"]), site_b, info_b)
@@ -166,6 +174,7 @@ def build_graph(scats_file, models_dir="models", model_type="random_forest", tim
             ],
             key=lambda x: x[0]
         )
+        # Connect to K nearest neighbours
         for distance_km, site_b, _ in distances[:K_NEAREST]:
             predicted_flow = predict_flow(
                 site_a, flow_lookup, model, model_type_loaded,

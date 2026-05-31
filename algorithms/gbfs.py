@@ -5,7 +5,7 @@ from math import sqrt, radians, sin, cos, atan2
 from node import Node, get_path
 
 
-def heuristic(state, destinations, nodes): # Haversine adapted from W3Tutorials.net
+def heuristic(state, destinations, nodes): # Haversine adapted from (GeeksforGeeks, 2022)
     x1, y1 = nodes[state]
     best = float("inf")
     for goal in destinations:

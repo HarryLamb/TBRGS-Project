@@ -1,3 +1,5 @@
+# Created by Harry Lamb
+
 import json
 import tkinter as tk
 from tkinter import messagebox
@@ -12,6 +14,7 @@ from algorithms.gbfs import GBFS
 from algorithms.idastar import IDA
 from visualisation import visualise_route
 
+# Load default settings from config file
 with open("config.json") as f:
     config = json.load(f)
 
@@ -22,12 +25,13 @@ nodes = None
 edges = None
 simple_nodes = None
 last_paths = {}
+best_path_name = None
 current_model = None
 current_slot = None
 
 
 def run_search():
-    global nodes, edges, simple_nodes, current_model, current_slot
+    global nodes, edges, simple_nodes, current_model, current_slot, best_path_name
 
     try:
         origin = int(origin_entry.get())
@@ -41,6 +45,8 @@ def run_search():
         return
 
     selected_model = model_var.get()
+
+    # Rebuild graph only if the ML model or the timeslot changes 
     if nodes is None or selected_model != current_model or time_slot != current_slot:
         nodes, edges = build_graph(SCATS_FILE, models_dir=MODELS_DIR,
                                    model_type=selected_model, time_slot=time_slot)
@@ -64,7 +70,9 @@ def run_search():
         "IDA*": lambda: IDA(simple_nodes, edges, origin, {destination}),
     }
 
+    # Run all algorithms and store the results
     results = []
+    last_paths.clear()
     for name, fn in algorithms.items():
         result = fn()
         if result is None:
@@ -78,7 +86,13 @@ def run_search():
         results.append((name, path, num_nodes, total_cost))
         last_paths[name] = path
 
+    if not results:
+        result_label.config(text="No path found.")
+        return
+
+    # Sort by travel time ascending so best route is first
     results.sort(key=lambda x: x[3])
+    best_path_name = results[0][0]
 
     hour = (time_slot * 15) // 60
     minute = (time_slot * 15) % 60
@@ -87,10 +101,6 @@ def run_search():
         path_str = ", ".join(str(s) for s in path)
         lines.append(f"{i}. {name} ({num_nodes} nodes explored)\n   Travel Time: {total_cost:.0f}s\n   Path: {path_str}")
 
-    if not results:
-        result_label.config(text="No path found.")
-        return
-
     result_label.config(text="\n\n".join(lines))
 
 
@@ -98,8 +108,10 @@ def show_map():
     if not last_paths:
         messagebox.showerror("Error", "Run a search first.")
         return
-    path = last_paths.get("UCS") or next(iter(last_paths.values()))
-    visualise_route(nodes, path, all_paths=last_paths)
+    # Use the best route (lowest travel time) as the highlighted route
+    best_name = best_path_name or "UCS"
+    path = last_paths.get(best_name) or next(iter(last_paths.values()))
+    visualise_route(nodes, path, best_name=best_name, all_paths=last_paths)
     webbrowser.open("route.html")
 
 
