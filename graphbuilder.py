@@ -1,4 +1,5 @@
 # Created by Harry Lamb
+# Machine Learning Parts created by Ashton Foo
 
 import json
 import math
